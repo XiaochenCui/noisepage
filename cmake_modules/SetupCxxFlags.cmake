@@ -37,6 +37,8 @@ string(TOUPPER ${BUILD_WARNING_LEVEL} UPPERCASE_BUILD_WARNING_LEVEL)
 
 set(CXX_ONLY_FLAGS "${CXX_ONLY_FLAGS} -std=c++17 -fPIC -mcx16 -march=native")
 
+message(STATUS "this is the value : ${UPPERCASE_BUILD_WARNING_LEVEL}")
+
 if ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "CHECKIN")
   # Pre-checkin builds
   if ("${COMPILER_FAMILY}" STREQUAL "clang")
@@ -52,7 +54,7 @@ if ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "CHECKIN")
   endif ()
 
   # Treat all compiler warnings as errors
-  set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Werror")
+  # set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Werror")
 elseif ("${UPPERCASE_BUILD_WARNING_LEVEL}" STREQUAL "EVERYTHING")
   # Pedantic builds for fixing warnings
   if ("${COMPILER_FAMILY}" STREQUAL "clang")

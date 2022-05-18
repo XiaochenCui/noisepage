@@ -1,6 +1,8 @@
 #pragma once
 
-#include <tbb/reader_writer_lock.h>
+// DEPRECATED
+// #include <tbb/reader_writer_lock.h>
+#include <shared_mutex>
 #include "common/macros.h"
 
 namespace terrier::common {
@@ -23,7 +25,9 @@ class SharedLatch {
   /**
    * Acquire shared lock on mutex.
    */
-  void LockShared() { latch_.lock_read(); }
+  // DEPRECATED
+  // void LockShared() { latch_.lock_read(); }
+  void LockShared() { latch_.lock_shared(); }
 
   /**
    * Try to acquire exclusive lock on mutex.
@@ -35,7 +39,9 @@ class SharedLatch {
    * Try to acquire shared lock on mutex.
    * @return true if lock acquired, false otherwise.
    */
-  bool TryLockShared() { return latch_.try_lock_read(); }
+  // DEPRECATED
+  // bool TryLockShared() { return latch_.try_lock_read(); }
+  bool TryLockShared() { return latch_.try_lock_shared(); }
 
   /**
    * Release lock.
@@ -82,7 +88,9 @@ class SharedLatch {
   };
 
  private:
-  tbb::reader_writer_lock latch_;
+  // DEPRECATED
+  // tbb::reader_writer_lock latch_;
+  std::shared_mutex latch_;
 };
 
 }  // namespace terrier::common

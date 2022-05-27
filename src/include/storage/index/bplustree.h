@@ -11,6 +11,8 @@ template <typename KeyType, typename ValueType, typename KeyComparator = std::le
           typename ValueEqualityChecker = std::equal_to<ValueType>>
 class BPlusTree {
  public:
+  using KeyValuePair = std::pair<KeyType, ValueType>;
+
   BPlusTree() {
     INDEX_LOG_INFO(
         "B+ Tree Constructor called. "
@@ -45,10 +47,28 @@ class BPlusTree {
    * Iterator Interface
    */
   class ForwardIterator {
-   public:
-    ForwardIterator(BPlusTree *tree) {}
+   private:
+    KeyValuePair *kv_pair;
 
-    bool IsEnd() { return false; }
+   public:
+    ForwardIterator(BPlusTree *tree) : kv_pair{nullptr} {}
+
+    bool IsEnd() { return true; }
+
+    /*
+     * operator->() - Returns the value pointer pointed to by this iterator
+     *
+     * Note that this function returns a constant pointer which can be used
+     * to access members of the value, but cannot modify
+     */
+    inline const KeyValuePair *operator->() { return &*kv_pair; }
+
+    /*
+     * Postfix operator++ - Move the iterator ahead, and return the old one
+     *
+     * For end() iterator we do not do anything but return the same iterator
+     */
+    inline ForwardIterator operator++(int) { return *this; }
   };
 };
 

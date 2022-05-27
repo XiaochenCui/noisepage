@@ -23,16 +23,14 @@ TEST_F(BPlusTreeTests, ForwardIterator) {
 
   auto it = tree->Begin();
 
-  INDEX_LOG_INFO("it.IsEnd: %d", it.IsEnd());
+  int64_t i = 0;
+  while (!it.IsEnd()) {
+    // EXPECT_EQ(it->first, it->second);
+    // EXPECT_EQ(it->first, i);
 
-  // int64_t i = 0;
-  // while (!it.IsEnd()) {
-  //   EXPECT_EQ(it->first, it->second);
-  //   EXPECT_EQ(it->first, i);
-
-  //   i++;
-  //   it++;
-  // }
+    i++;
+    it++;
+  }
 
   // EXPECT_EQ(i, key_num);
 

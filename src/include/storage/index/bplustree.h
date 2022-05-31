@@ -98,7 +98,10 @@ class BPlusTree {
     // Pointers to children
     node *children[inner_slotmax + 1];
 
-    explicit InnerNode() : node(0) {}
+    explicit InnerNode(const uint8_t level) : node(level) {}
+
+    // True if the node's slots are full.
+    bool IsFull() const { return (node::slotused == leaf_slotmax); }
   };
 
  private:
@@ -107,7 +110,7 @@ class BPlusTree {
    */
 
   // Pointer to the B+ tree's root node, either leaf or inner node.
-  node *root_;
+  node *root;
 
  public:
   using KeyValuePair = std::pair<KeyType, ValueType>;
@@ -115,7 +118,7 @@ class BPlusTree {
   /*
    * Default constructor initializing an empty B+ tree.
    */
-  explicit BPlusTree() : root_(nullptr) {
+  explicit BPlusTree() : root(nullptr) {
     INDEX_LOG_INFO(
         "B+ Tree Constructor called. "
         "Setting up execution environment...");
@@ -138,22 +141,43 @@ class BPlusTree {
    */
   void Insert(const KeyType &key, const ValueType &value, bool unique_key = false) {
     INDEX_LOG_INFO("Inserting key: {}", key);
-    if (root_ == nullptr) {
-      root_ = new LeafNode();
+    if (root == nullptr) {
+      root = new LeafNode();
     }
 
-    InsertDescend(root_, key, value);
+    node *new_child = nullptr;
+    KeyType new_key = KeyType();
+    InsertDescend(root, key, value, new_key, new_child);
+    if (new_child != nullptr) {
+      // This occurs when the root node is full and a new node had been
+      // created, so we have to create a new root node and set the old root
+      // and new child as its children.
+      INDEX_LOG_INFO("New child created");
+      throw std::out_of_range("New child created");
+      InnerNode *new_root = new InnerNode(root->level + 1);
+      new_root->keys[0] = new_key;
+
+      new_root->children[0] = root;
+      new_root->children[1] = new_child;
+
+      new_root->slotused = 1;
+
+      root = new_root;
+    }
     return;
   }
 
-  /*
+  /**
    * Insert an item into the B+ tree.
    *
    * Descend down the nodes to a leaf, insert the key/data pair in a free
    * slot. If the node overflows, then it must be split and the new split node
-   * inserted into the parent. Unroll / this splitting up to the root.
+   * inserted into the parent. Unroll this splitting up to the root.
+   *
+   * @param new_node The new node created by the split, we pass the argument as
+   * "reference to pointer" to return the newly created node to the caller.
    */
-  void InsertDescend(node *n, const KeyType &key, const ValueType &value) {
+  void InsertDescend(node *n, const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) {
     if (n->IsLeafPage()) {
       LeafNode *leaf = static_cast<LeafNode *>(n);
 
@@ -166,6 +190,8 @@ class BPlusTree {
         std::copy(leaf->keys + mid, leaf->keys + leaf->slotused, new_right_sibling->keys);
         std::copy(leaf->values + mid, leaf->values + leaf->slotused, new_right_sibling->values);
 
+        leaf->slotused = mid;
+
         KeyType split_key = new_right_sibling->keys[0];
         if (KeyComparator{}(key, split_key)) {
           // Insert the old key in the old leaf page
@@ -175,7 +201,9 @@ class BPlusTree {
           new_right_sibling->InsertAt(0, key, value);
         }
 
-        InnerNode *new_parent = new InnerNode();
+        new_node = new_right_sibling;
+        return;
+        // InnerNode *new_parent = new InnerNode();
       }
 
       uint16_t position = FindFirstGreaterOrEqual(leaf, key);

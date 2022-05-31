@@ -27,10 +27,15 @@ class BPlusTreeIndex final : public Index {
   friend class IndexBuilder;
 
  private:
-  explicit BPlusTreeIndex(IndexMetadata metadata)
-      : Index(std::move(metadata)), bplustree_{new BPlusTree<KeyType, TupleSlot>} {}
+  // explicit BPlusTreeIndex(IndexMetadata metadata)
+  //     : Index(std::move(metadata)), bplustree_{new BPlusTree<KeyType, TupleSlot>} {}
 
-  const std::unique_ptr<BPlusTree<KeyType, TupleSlot>> bplustree_;
+  // const std::unique_ptr<BPlusTree<KeyType, TupleSlot>> bplustree_;
+
+  explicit BPlusTreeIndex(IndexMetadata metadata)
+      : Index(std::move(metadata)), bplustree_{new BPlusTree} {}
+
+  const std::unique_ptr<BPlusTree> bplustree_;
 
  public:
   IndexType Type() const final { return IndexType::BPLUSTREE; }

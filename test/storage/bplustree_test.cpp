@@ -11,7 +11,7 @@ struct BPlusTreeTests : public TerrierTest {};
 TEST_F(BPlusTreeTests, EmptyTest) { EXPECT_TRUE(true); }
 
 TEST_F(BPlusTreeTests, ForwardIterator) {
-  auto *const tree = new BPlusTree<int64_t, int64_t>();
+  auto *const tree = new BPlusTree();
   tree->PrintContents();
 
   const int key_num = 1024 * 1024;

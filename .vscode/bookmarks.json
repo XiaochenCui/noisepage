@@ -1,0 +1,24 @@
+{
+	"files": [
+		{
+			"path": "third_party/bwtree/bwtree.h",
+			"bookmarks": [
+				{
+					"line": 6542,
+					"column": 13,
+					"label": "bwtree insert"
+				}
+			]
+		},
+		{
+			"path": "src/include/storage/index/bwtree_index.h",
+			"bookmarks": [
+				{
+					"line": 45,
+					"column": 37,
+					"label": "bwtree insert wrapper"
+				}
+			]
+		}
+	]
+}

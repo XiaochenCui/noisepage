@@ -11,10 +11,11 @@ struct BPlusTreeTests : public TerrierTest {};
 TEST_F(BPlusTreeTests, EmptyTest) { EXPECT_TRUE(true); }
 
 TEST_F(BPlusTreeTests, ForwardIterator) {
-  auto *const tree = new BPlusTree();
-  tree->PrintContents();
+  std::unique_ptr<BPlusTree> tree = std::make_unique<BPlusTree>();
+  tree->PrintInnerStructure();
 
-  const int key_num = 1024 * 1024;
+  // const int key_num = 1024 * 1024;
+  const int key_num = 2000;
 
   // First insert from 0 to 1 million
   for (int i = 0; i < key_num; i++) {
@@ -44,8 +45,6 @@ TEST_F(BPlusTreeTests, ForwardIterator) {
 
   // auto it4 = tree->Begin(key_num + 1);
   // EXPECT_TRUE(it4.IsEnd());
-
-  delete tree;
 }
 
 }  // namespace terrier::storage::index

@@ -46,8 +46,28 @@ class BPlusTree {
 
     node(const uint8_t l) : slotused(0) { level = l; }
 
+    virtual ~node() = default;
+
     // True if this is a leaf node.
     bool IsLeafPage() const { return (level == 0); }
+
+    /**
+     * Insert an item into the sub-tree rooted at this node.
+     *
+     * On node overflow happens, if a new_node which has the same level as this
+     * node is created, it will be pack up to the caller by `new_node` parameter.
+     *
+     * @param new_node The new node created by the split, we pass the argument as
+     * "reference to pointer" to return the newly created node to the caller.
+     */
+    virtual void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) {
+      throw std::runtime_error("call virtual function: node::Insert");
+    }
+
+    /**
+     * Recursively free up nodes.
+     */
+    virtual void ClearChildren() { throw std::runtime_error("call virtual function: node::ClearChildren"); }
   };
 
   /*
@@ -64,6 +84,8 @@ class BPlusTree {
     ValueType values[leaf_slotmax];
 
     explicit LeafNode() : node(0), right_sibling(nullptr), left_sibling(nullptr) {}
+
+    ~LeafNode() = default;
 
     // True if the node's slots are full.
     bool IsFull() const { return (node::slotused == leaf_slotmax); }
@@ -89,6 +111,57 @@ class BPlusTree {
       values[position] = value;
       node::slotused++;
     }
+
+    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) override {
+      if (this->IsFull()) {
+        // On page filled, create a new leaf page as right sibling and
+        // move half of entries to it
+        LeafNode *new_right_sibling = new LeafNode();
+
+        uint16_t mid = this->slotused / 2;
+        std::copy(this->keys + mid, this->keys + this->slotused, new_right_sibling->keys);
+        std::copy(this->values + mid, this->values + this->slotused, new_right_sibling->values);
+
+        this->slotused = mid;
+
+        KeyType split_key = new_right_sibling->keys[0];
+        if (KeyComparator()(key, split_key)) {
+          // Insert the old key in the old this page
+          this->InsertAt(mid, split_key, this->values[mid]);
+        } else {
+          // Insert the new key in the new this page
+          new_right_sibling->InsertAt(0, key, value);
+        }
+
+        *new_node = new_right_sibling;
+        return;
+      }
+
+      uint16_t position = FindFirstGreaterOrEqual(key);
+      this->InsertAt(position, key, value);
+
+      return;
+    }
+
+    uint16_t FindFirstGreaterOrEqual(const KeyType &key) {
+      if (this->slotused == 0) {
+        return 0;
+      }
+
+      for (uint16_t i = 0; i < this->slotused; i++) {
+        if (KeyComparator()(key, this->keys[i])) {
+          return i;
+        }
+      }
+      return this->slotused;
+    }
+
+    /**
+     * Recursively free up nodes.
+     *
+     * Do nothing since leaf node doesn't have any children
+     */
+    void ClearChildren() {}
   };
 
   struct InnerNode : public node {
@@ -100,8 +173,51 @@ class BPlusTree {
 
     explicit InnerNode(const uint8_t level) : node(level) {}
 
+    ~InnerNode() = default;
+
     // True if the node's slots are full.
     bool IsFull() const { return (node::slotused == leaf_slotmax); }
+
+    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) override {
+      // stage 1 : find the proper child node to insert
+      node *child = nullptr;
+      for (uint16_t i = 0; i < node::slotused; i++) {
+        if (KeyComparator()(key, this->keys[i])) {
+          child = this->children[i];
+          break;
+        }
+      }
+      if (child == nullptr) {
+        child = this->children[node::slotused + 1];
+      }
+
+      if (child == nullptr) {
+        throw std::runtime_error("child is nullptr");
+      }
+
+      // if (new_node == nullptr) {
+      //   throw std::runtime_error("new_node is nullptr");
+      // }
+
+      // stage 2 : insert the key into the child node
+      child->Insert(key, value, new_key, new_node);
+      if (new_node != nullptr) {
+        throw std::runtime_error("not implemented");
+      }
+    }
+
+    /**
+     * Recursively free up nodes.
+     */
+    void ClearChildren() {
+      for (uint16_t i = 0; i < node::slotused; i++) {
+        if (children[i] != nullptr) {
+          children[i]->ClearChildren();
+          delete children[i];
+          children[i] = nullptr;
+        }
+      }
+    }
   };
 
  private:
@@ -128,9 +244,13 @@ class BPlusTree {
     INDEX_LOG_INFO(
         "B+ Tree Destructor called. "
         "Cleaning up execution environment...");
+    if (root != nullptr) {
+      root->ClearChildren();
+      delete root;
+    }
   }
 
-  void PrintContents() { INDEX_LOG_INFO("B+ Tree Contents:"); }
+  void PrintInnerStructure() { INDEX_LOG_INFO("B+ Tree Contents:"); }
 
   /*
    * Insert() - Insert a key-value pair
@@ -147,13 +267,19 @@ class BPlusTree {
 
     node *new_child = nullptr;
     KeyType new_key = KeyType();
-    InsertDescend(root, key, value, new_key, new_child);
+
+    try {
+      root->Insert(key, value, new_key, &new_child);
+    } catch (const std::exception &e) {
+      INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", key, e.what());
+      throw e;
+    }
+
     if (new_child != nullptr) {
       // This occurs when the root node is full and a new node had been
       // created, so we have to create a new root node and set the old root
       // and new child as its children.
       INDEX_LOG_INFO("New child created");
-      throw std::out_of_range("New child created");
       InnerNode *new_root = new InnerNode(root->level + 1);
       new_root->keys[0] = new_key;
 
@@ -165,66 +291,6 @@ class BPlusTree {
       root = new_root;
     }
     return;
-  }
-
-  /**
-   * Insert an item into the B+ tree.
-   *
-   * Descend down the nodes to a leaf, insert the key/data pair in a free
-   * slot. If the node overflows, then it must be split and the new split node
-   * inserted into the parent. Unroll this splitting up to the root.
-   *
-   * @param new_node The new node created by the split, we pass the argument as
-   * "reference to pointer" to return the newly created node to the caller.
-   */
-  void InsertDescend(node *n, const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) {
-    if (n->IsLeafPage()) {
-      LeafNode *leaf = static_cast<LeafNode *>(n);
-
-      if (leaf->IsFull()) {
-        // On page filled, create a new leaf page as right sibling and
-        // move half of entries to it
-        LeafNode *new_right_sibling = new LeafNode();
-
-        uint16_t mid = leaf->slotused / 2;
-        std::copy(leaf->keys + mid, leaf->keys + leaf->slotused, new_right_sibling->keys);
-        std::copy(leaf->values + mid, leaf->values + leaf->slotused, new_right_sibling->values);
-
-        leaf->slotused = mid;
-
-        KeyType split_key = new_right_sibling->keys[0];
-        if (KeyComparator{}(key, split_key)) {
-          // Insert the old key in the old leaf page
-          leaf->InsertAt(mid, split_key, leaf->values[mid]);
-        } else {
-          // Insert the new key in the new leaf page
-          new_right_sibling->InsertAt(0, key, value);
-        }
-
-        new_node = new_right_sibling;
-        return;
-        // InnerNode *new_parent = new InnerNode();
-      }
-
-      uint16_t position = FindFirstGreaterOrEqual(leaf, key);
-      leaf->InsertAt(position, key, value);
-
-      return;
-    }
-    throw std::logic_error("Not implemented");
-  }
-
-  uint16_t FindFirstGreaterOrEqual(LeafNode *leaf, const KeyType &key) {
-    if (leaf->slotused == 0) {
-      return 0;
-    }
-
-    for (uint16_t i = 0; i < leaf->slotused; i++) {
-      if (KeyComparator{}(key, leaf->keys[i])) {
-        return i;
-      }
-    }
-    return leaf->slotused;
   }
 
   /*

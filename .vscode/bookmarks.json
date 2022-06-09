@@ -19,6 +19,16 @@
 					"label": "bwtree insert wrapper"
 				}
 			]
+		},
+		{
+			"path": "../../xiaochen-toolkit/scripts/noisepage_research/15721_s20_project2.sh",
+			"bookmarks": [
+				{
+					"line": 2,
+					"column": 12,
+					"label": "project-2 script"
+				}
+			]
 		}
 	]
 }

@@ -202,12 +202,12 @@ class BPlusTree {
       if (new_node != nullptr) {
         // On child split, insert the `new_node` to children list closed to `child`, and set `new_key` as the spliter
         // between them.
-        throw std::runtime_error("not implemented");
+        throw std::runtime_error("not implemented, code location: src/include/storage/index/bplustree.h:205 ");
       }
     }
 
     void InsertAt(const uint16_t position, node *new_child) {
-      INDEX_LOG_INFO("Inserting node: {} at position: {}", new_child, position);
+      INDEX_LOG_INFO("Inserting child node at position: {}", position);
 
       if (position > node::slotused) {
         INDEX_LOG_ERROR("Insertion position is greater than slotused");

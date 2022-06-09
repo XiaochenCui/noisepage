@@ -60,7 +60,7 @@ class BPlusTree {
      * @param new_node The new node created by the split, we pass the argument as
      * "reference to pointer" to return the newly created node to the caller.
      */
-    virtual void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) {
+    virtual void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) {
       throw std::runtime_error("call virtual function: node::Insert");
     }
 
@@ -112,7 +112,7 @@ class BPlusTree {
       node::slotused++;
     }
 
-    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) override {
+    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) override {
       if (this->IsFull()) {
         // On page filled, create a new leaf page as right sibling and
         // move half of entries to it
@@ -133,7 +133,7 @@ class BPlusTree {
           new_right_sibling->InsertAt(0, key, value);
         }
 
-        *new_node = new_right_sibling;
+        new_node = new_right_sibling;
         return;
       }
 
@@ -171,14 +171,16 @@ class BPlusTree {
     // Pointers to children
     node *children[inner_slotmax + 1];
 
-    explicit InnerNode(const uint8_t level) : node(level) {}
+    // Use `array()` syntax to initialize the array in the constructor, otherwise
+    // an array will not be initialised by default
+    explicit InnerNode(const uint8_t level) : node(level), children() {}
 
     ~InnerNode() = default;
 
     // True if the node's slots are full.
     bool IsFull() const { return (node::slotused == leaf_slotmax); }
 
-    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node **new_node) override {
+    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) override {
       // stage 1 : find the proper child node to insert
       node *child = nullptr;
       for (uint16_t i = 0; i < node::slotused; i++) {
@@ -188,22 +190,47 @@ class BPlusTree {
         }
       }
       if (child == nullptr) {
-        child = this->children[node::slotused + 1];
+        child = this->children[node::slotused];
       }
 
       if (child == nullptr) {
         throw std::runtime_error("child is nullptr");
       }
 
-      // if (new_node == nullptr) {
-      //   throw std::runtime_error("new_node is nullptr");
-      // }
-
       // stage 2 : insert the key into the child node
       child->Insert(key, value, new_key, new_node);
       if (new_node != nullptr) {
+        // On child split, insert the `new_node` to children list closed to `child`, and set `new_key` as the spliter
+        // between them.
         throw std::runtime_error("not implemented");
       }
+    }
+
+    void InsertAt(const uint16_t position, node *new_child) {
+      INDEX_LOG_INFO("Inserting node: {} at position: {}", new_child, position);
+
+      if (position > node::slotused) {
+        INDEX_LOG_ERROR("Insertion position is greater than slotused");
+        throw std::out_of_range("Insertion position is greater than slotused");
+        return;
+      }
+
+      if (IsFull()) {
+        INDEX_LOG_ERROR("Inner node is full");
+        throw std::out_of_range("Inner node is full");
+        return;
+      }
+
+      std::copy_backward(keys + position, keys + node::slotused, keys + node::slotused + 1);
+      std::copy_backward(children + position, children + node::slotused + 1, children + node::slotused + 2);
+
+      // std::copy_backward(inner->slotkey + slot, inner->slotkey + inner->slotuse, inner->slotkey + inner->slotuse +
+      // 1); std::copy_backward(inner->childid + slot, inner->childid + inner->slotuse + 1,
+      //                    inner->childid + inner->slotuse + 2);
+
+      // inner->slotkey[slot] = newkey;
+      // inner->childid[slot + 1] = newchild;
+      // inner->slotuse++;
     }
 
     /**
@@ -269,7 +296,7 @@ class BPlusTree {
     KeyType new_key = KeyType();
 
     try {
-      root->Insert(key, value, new_key, &new_child);
+      root->Insert(key, value, new_key, new_child);
     } catch (const std::exception &e) {
       INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", key, e.what());
       throw e;

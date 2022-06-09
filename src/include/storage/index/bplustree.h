@@ -60,7 +60,7 @@ class BPlusTree {
      * @param new_node The new node created by the split, we pass the argument as
      * "reference to pointer" to return the newly created node to the caller.
      */
-    virtual void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) {
+    virtual std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) {
       throw std::runtime_error("call virtual function: node::Insert");
     }
 
@@ -112,7 +112,7 @@ class BPlusTree {
       node::slotused++;
     }
 
-    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) override {
+    std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
       if (this->IsFull()) {
         // On page filled, create a new leaf page as right sibling and
         // move half of entries to it
@@ -133,14 +133,13 @@ class BPlusTree {
           new_right_sibling->InsertAt(0, key, value);
         }
 
-        new_node = new_right_sibling;
-        return;
+        return std::make_pair(new_right_sibling, &split_key);
       }
 
       uint16_t position = FindFirstGreaterOrEqual(key);
       this->InsertAt(position, key, value);
 
-      return;
+      return std::make_pair(nullptr, nullptr);
     }
 
     uint16_t FindFirstGreaterOrEqual(const KeyType &key) {
@@ -180,7 +179,7 @@ class BPlusTree {
     // True if the node's slots are full.
     bool IsFull() const { return (node::slotused == leaf_slotmax); }
 
-    void Insert(const KeyType &key, const ValueType &value, KeyType &new_key, node *&new_node) override {
+    std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
       // stage 1 : find the proper child node to insert
       node *child = nullptr;
       for (uint16_t i = 0; i < node::slotused; i++) {
@@ -198,8 +197,8 @@ class BPlusTree {
       }
 
       // stage 2 : insert the key into the child node
-      child->Insert(key, value, new_key, new_node);
-      if (new_node != nullptr) {
+      auto r = child->Insert(key, value);
+      if (r.first != nullptr) {
         // On child split, insert the `new_node` to children list closed to `child`, and set `new_key` as the spliter
         // between them.
         throw std::runtime_error("not implemented, code location: src/include/storage/index/bplustree.h:205 ");
@@ -293,10 +292,12 @@ class BPlusTree {
     }
 
     node *new_child = nullptr;
-    KeyType new_key = KeyType();
+    KeyType *new_key = nullptr;
 
     try {
-      root->Insert(key, value, new_key, new_child);
+      auto r = root->Insert(key, value);
+      new_child = r.first;
+      new_key = r.second;
     } catch (const std::exception &e) {
       INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", key, e.what());
       throw e;
@@ -308,7 +309,7 @@ class BPlusTree {
       // and new child as its children.
       INDEX_LOG_INFO("New child created");
       InnerNode *new_root = new InnerNode(root->level + 1);
-      new_root->keys[0] = new_key;
+      new_root->keys[0] = *new_key;
 
       new_root->children[0] = root;
       new_root->children[1] = new_child;

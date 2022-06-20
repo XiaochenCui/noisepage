@@ -29,6 +29,21 @@
 					"label": "project-2 script"
 				}
 			]
+		},
+		{
+			"path": "src/include/storage/index/bplustree.h",
+			"bookmarks": [
+				{
+					"line": 134,
+					"column": 7,
+					"label": "leaf insert"
+				},
+				{
+					"line": 238,
+					"column": 93,
+					"label": "inner insert"
+				}
+			]
 		}
 	]
 }

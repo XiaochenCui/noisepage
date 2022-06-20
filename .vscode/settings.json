@@ -77,7 +77,10 @@
         "complex": "cpp",
         "*.ipp": "cpp",
         "*.inc": "cpp",
-        "*.def": "cpp"
+        "*.def": "cpp",
+        "filesystem": "cpp",
+        "future": "cpp",
+        "cfenv": "cpp"
     },
     "cmake.configureOnOpen": false,
     "cmake.skipConfigureIfCachePresent": false,

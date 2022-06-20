@@ -19,6 +19,11 @@ std::string string_format(const std::string &format, Args... args) {
 
 namespace terrier::storage::index {
 
+const uint8_t TreeSummary = 0;
+const uint8_t ExpandLeafNodes = 1;
+const uint8_t ShowTupleContent = 2;
+uint8_t VerboseLevel = 0;
+
 // template <typename KeyType, typename ValueType, typename KeyComparator = std::less<KeyType>,
 //           typename KeyEqualityChecker = std::equal_to<KeyType>, typename KeyHashFunc = std::hash<KeyType>,
 //           typename ValueEqualityChecker = std::equal_to<ValueType>>
@@ -77,7 +82,7 @@ class BPlusTree {
     virtual void ClearChildren() { throw std::runtime_error("call virtual function: node::ClearChildren"); }
 
    public:
-    virtual void PrintTree(bool verbose = false, uint8_t level = 0) const {}
+    virtual void PrintTree(uint8_t level = 0) const {}
 
    private:
     virtual std::string Outline(bool verbose = false) const {
@@ -103,12 +108,12 @@ class BPlusTree {
     ~LeafNode() = default;
 
     // True if the node's slots are full.
-    bool IsFull() const { return (node::slotused == leaf_slotmax); }
+    bool IsFull() const { return (slotused == leaf_slotmax); }
 
     void InsertAt(const uint16_t position, const KeyType &key, const ValueType &value) {
-      INDEX_LOG_INFO("Inserting key: {} at position: {}", key, position);
+      // INDEX_LOG_INFO("Inserting key: {} at position: {}", key, position);
 
-      if (position > node::slotused) {
+      if (position > slotused) {
         INDEX_LOG_ERROR("Insertion position is greater than slotused");
         throw std::out_of_range("Insertion position is greater than slotused");
         return;
@@ -120,11 +125,11 @@ class BPlusTree {
         return;
       }
 
-      std::copy_backward(keys + position, keys + node::slotused, keys + node::slotused + 1);
-      std::copy_backward(values + position, values + node::slotused, values + node::slotused + 1);
+      std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
+      std::copy_backward(values + position, values + slotused, values + slotused + 1);
       keys[position] = key;
       values[position] = value;
-      node::slotused++;
+      slotused++;
     }
 
     std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
@@ -137,15 +142,16 @@ class BPlusTree {
         std::copy(this->keys + mid, this->keys + this->slotused, new_right_sibling->keys);
         std::copy(this->values + mid, this->values + this->slotused, new_right_sibling->values);
 
+        new_right_sibling->slotused = this->slotused - mid;
         this->slotused = mid;
 
         KeyType split_key = new_right_sibling->keys[0];
         if (KeyComparator()(key, split_key)) {
-          // Insert the old key in the old this page
-          this->InsertAt(mid, split_key, this->values[mid]);
+          // Insert the old key in the old page.
+          this->Insert(key, value);
         } else {
-          // Insert the new key in the new this page
-          new_right_sibling->InsertAt(0, key, value);
+          // Insert the new key in the new page.
+          new_right_sibling->Insert(key, value);
         }
 
         return std::make_pair(new_right_sibling, &split_key);
@@ -177,20 +183,39 @@ class BPlusTree {
      */
     void ClearChildren() {}
 
-    void PrintTree(bool verbose = false, uint8_t level = 0) const final {
-      std::string content = "";
-      if (level == 0) {
-        content += "(Root Node)";
-      } else {
-        content += std::string(level, '\t') + "├";
+    void PrintTree(uint8_t level) const final {
+      if (VerboseLevel < ExpandLeafNodes) {
+        return;
       }
+
+      std::string content = "";
+      for (int i = 0; i < level; i++) {
+        content += "│   ";
+      }
+      content += "├──";
+
+      bool verbose = VerboseLevel > ShowTupleContent ? true : false;
       content += this->Outline(verbose);
       content += "\n";
       std::cout << content;
     }
 
     std::string Outline(bool verbose) const final {
-      std::string repr = string_format("LeafNode (address: %p, slotused: %d, keys: [", this, this->slotused);
+      std::string repr =
+          string_format("LeafNode (address: %p, slotused: %d (capacity: %d), ", this, slotused, leaf_slotmax);
+
+      if (verbose) {
+        repr += "contents: [";
+        for (int i = 0; i < slotused; i++) {
+          repr += string_format("%d, ", keys[i]);
+        }
+        repr += "])";
+      } else {
+        ValueType first_key = keys[0];
+        ValueType last_key = keys[slotused - 1];
+        repr += string_format("contents: [%d, ..., %d])", first_key, last_key);
+      }
+
       return repr;
     }
   };
@@ -209,19 +234,20 @@ class BPlusTree {
     ~InnerNode() = default;
 
     // True if the node's slots are full.
-    bool IsFull() const { return (node::slotused == leaf_slotmax); }
+    bool IsFull() const { return (slotused == leaf_slotmax); }
 
     std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
       // stage 1 : find the proper child node to insert
       node *child = nullptr;
-      for (uint16_t i = 0; i < node::slotused; i++) {
-        if (KeyComparator()(key, this->keys[i])) {
-          child = this->children[i];
+      uint16_t child_position = 0;
+      for (child_position = 0; child_position < slotused; child_position++) {
+        if (KeyComparator()(key, this->keys[child_position])) {
+          child = this->children[child_position];
           break;
         }
       }
       if (child == nullptr) {
-        child = this->children[node::slotused];
+        child = this->children[slotused];
       }
 
       if (child == nullptr) {
@@ -233,11 +259,46 @@ class BPlusTree {
       if (r.first != nullptr) {
         // On child split, insert the `new_node` to children list closed to `child`, and set `new_key` as the spliter
         // between them.
+
         if (this->IsFull()) {
-          throw std::runtime_error("node is full");
+          InnerNode *new_right_sibling = new InnerNode();
+
+          uint16_t mid = this->slotused / 2;
+          // Mve the keys start from `mid+1` to the new node, the key at `mid` will be popped up.
+          std::copy(this->keys + mid + 1, this->keys + this->slotused, new_right_sibling->keys);
+          // Move the children start from `mid+1` to the new node. The left child of `mid+1` was moved to the new node.
+          std::copy(this->children + mid + 1, this->children + this->slotused + 1, new_right_sibling->children);
+
+          // `-1` stands for the middle key of the original node, which will be popped up.
+          new_right_sibling->slotused = this->slotused - mid - 1;
+          this->slotused = mid;
+
+          KeyType split_key = new_right_sibling->keys[0];
+          if (KeyComparator()(key, split_key)) {
+            // Insert the old key in the old page.
+            this->Insert(key, value);
+          } else {
+            // Insert the new key in the new page.
+            new_right_sibling->Insert(key, value);
+          }
+          return std::make_pair(new_right_sibling, &split_key);
         }
 
-        // Find the proper location to insert the new key and new child, the
+        // The new child is the new right sibling of the `child`.
+        {
+          // The target position to insert the new key is `child_position`.
+          std::copy_backward(keys + child_position, keys + slotused, keys + slotused + 1);
+          keys[child_position] = *r.second;
+
+          // The target position to insert the new child is `child_position + 1`.
+          std::copy_backward(children + child_position, children + slotused + 1, children + slotused + 2);
+          children[child_position + 1] = r.first;
+
+          // Increase the slot used.
+          slotused++;
+        }
+
+        return std::make_pair(nullptr, nullptr);
       }
       return r;
     }
@@ -245,7 +306,7 @@ class BPlusTree {
     void InsertAt(const uint16_t position, node *new_child) {
       INDEX_LOG_INFO("Inserting child node at position: {}", position);
 
-      if (position > node::slotused) {
+      if (position > slotused) {
         INDEX_LOG_ERROR("Insertion position is greater than slotused");
         throw std::out_of_range("Insertion position is greater than slotused");
         return;
@@ -257,43 +318,51 @@ class BPlusTree {
         return;
       }
 
-      std::copy_backward(keys + position, keys + node::slotused, keys + node::slotused + 1);
-      std::copy_backward(children + position, children + node::slotused + 1, children + node::slotused + 2);
+      std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
+      std::copy_backward(children + position, children + slotused + 1, children + slotused + 2);
     }
 
     /**
      * Recursively free up nodes.
      */
-    void ClearChildren() override {
-      for (uint16_t i = 0; i < node::slotused; i++) {
+    void ClearChildren() final {
+      // Clear children recursively.
+      for (uint16_t i = 0; i <= slotused; i++) {
         if (children[i] != nullptr) {
           children[i]->ClearChildren();
           delete children[i];
           children[i] = nullptr;
         }
       }
+
+      // Clear keys.
+      
     }
 
-    void PrintTree(bool verbose, uint8_t level) const final {
+    void PrintTree(uint8_t level) const final {
       std::string content = "";
-      content += std::string(level, '\t') + "├──";
-      content += this->Outline(verbose);
+      for (int i = 0; i < level; i++) {
+        content += "│   ";
+      }
+      content += "├──";
+
+      content += this->Outline(true);
       content += "\n";
       std::cout << content;
 
       // Print children
-      for (uint16_t i = 0; i < node::slotused; i++) {
+      for (uint16_t i = 0; i <= slotused; i++) {
         if (children[i] != nullptr) {
-          children[i]->PrintTree(verbose, level + 1);
+          children[i]->PrintTree(level + 1);
         } else {
-          content += string_format("error child at position {}, child is nullptr", i);
+          content += string_format("error child at position %d, child is nullptr", i);
         }
       }
     }
 
     std::string Outline(bool verbose) const final {
       std::string repr = string_format("InnerNode (address: %p, slotused: %d, keys: [", this, this->slotused);
-      for (uint16_t i = 0; i < node::slotused; i++) {
+      for (uint16_t i = 0; i < slotused; i++) {
         repr += string_format("%d, ", keys[i]);
       }
       repr += "])";
@@ -354,7 +423,7 @@ class BPlusTree {
    * should be set true. By default we allow non-unique key
    */
   void Insert(const KeyType &key, const ValueType &value, bool unique_key = false) {
-    INDEX_LOG_INFO("Inserting key: {}", key);
+    // INDEX_LOG_INFO("Inserting key: {}", key);
     if (root == nullptr) {
       root = new LeafNode();
     }

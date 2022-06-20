@@ -4,6 +4,18 @@
 
 #include "loggers/index_logger.h"
 
+template <typename... Args>
+std::string string_format(const std::string &format, Args... args) {
+  int size_s = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;  // Extra space for '\0'
+  if (size_s <= 0) {
+    throw std::runtime_error("Error during formatting.");
+  }
+  auto size = static_cast<size_t>(size_s);
+  std::unique_ptr<char[]> buf(new char[size]);
+  std::snprintf(buf.get(), size, format.c_str(), args...);
+  return std::string(buf.get(), buf.get() + size - 1);  // We don't want the '\0' inside
+}
+
 namespace terrier::storage::index {
 
 // template <typename KeyType, typename ValueType, typename KeyComparator = std::less<KeyType>,
@@ -68,6 +80,10 @@ class BPlusTree {
      * Recursively free up nodes.
      */
     virtual void ClearChildren() { throw std::runtime_error("call virtual function: node::ClearChildren"); }
+
+    virtual std::string PrettyRepresentation() {
+      throw std::runtime_error("call virtual function: node::PrettyRepresentation");
+    }
   };
 
   /*
@@ -161,6 +177,12 @@ class BPlusTree {
      * Do nothing since leaf node doesn't have any children
      */
     void ClearChildren() {}
+
+    virtual std::string PrettyRepresentation() override {
+      std::string repr =
+          string_format("LeafNode (address: %p, level: %d, slotused: %d, keys: [", this, this->level, this->slotused);
+      return repr;
+    }
   };
 
   struct InnerNode : public node {
@@ -201,8 +223,13 @@ class BPlusTree {
       if (r.first != nullptr) {
         // On child split, insert the `new_node` to children list closed to `child`, and set `new_key` as the spliter
         // between them.
-        throw std::runtime_error("not implemented, code location: src/include/storage/index/bplustree.h:205 ");
+        if (this->IsFull()) {
+          throw std::runtime_error("node is full");
+        }
+
+        // Find the proper location to insert the new key and new child, the 
       }
+      return r;
     }
 
     void InsertAt(const uint16_t position, node *new_child) {
@@ -222,20 +249,12 @@ class BPlusTree {
 
       std::copy_backward(keys + position, keys + node::slotused, keys + node::slotused + 1);
       std::copy_backward(children + position, children + node::slotused + 1, children + node::slotused + 2);
-
-      // std::copy_backward(inner->slotkey + slot, inner->slotkey + inner->slotuse, inner->slotkey + inner->slotuse +
-      // 1); std::copy_backward(inner->childid + slot, inner->childid + inner->slotuse + 1,
-      //                    inner->childid + inner->slotuse + 2);
-
-      // inner->slotkey[slot] = newkey;
-      // inner->childid[slot + 1] = newchild;
-      // inner->slotuse++;
     }
 
     /**
      * Recursively free up nodes.
      */
-    void ClearChildren() {
+    void ClearChildren() override {
       for (uint16_t i = 0; i < node::slotused; i++) {
         if (children[i] != nullptr) {
           children[i]->ClearChildren();
@@ -243,6 +262,12 @@ class BPlusTree {
           children[i] = nullptr;
         }
       }
+    }
+
+    virtual std::string PrettyRepresentation() override {
+      std::string repr =
+          string_format("InnerNode (address: %p, level: %d, slotused: %d, keys: [", this, this->level, this->slotused);
+      return repr;
     }
   };
 
@@ -276,7 +301,21 @@ class BPlusTree {
     }
   }
 
-  void PrintInnerStructure() { INDEX_LOG_INFO("B+ Tree Contents:"); }
+  void PrintInnerStructure() {
+    std::string content = "\n";
+
+    if (root == nullptr) {
+      content += "Empty tree";
+      INDEX_LOG_INFO(content);
+      return;
+    }
+
+    content.append("B+ Tree Contents:\n");
+    content.append("=================\n");
+    content.append("Level: 0 (root)\n");
+    content.append(this->root->PrettyRepresentation() + "\n");
+    INDEX_LOG_INFO(content);
+  }
 
   /*
    * Insert() - Insert a key-value pair
@@ -300,6 +339,7 @@ class BPlusTree {
       new_key = r.second;
     } catch (const std::exception &e) {
       INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", key, e.what());
+      this->PrintInnerStructure();
       throw e;
     }
 

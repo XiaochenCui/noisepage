@@ -73,7 +73,8 @@
         "cinttypes": "cpp",
         "typeinfo": "cpp",
         "bit": "cpp",
-        "codecvt": "cpp"
+        "codecvt": "cpp",
+        "complex": "cpp"
     },
     "cmake.configureOnOpen": false,
     "cmake.skipConfigureIfCachePresent": false,

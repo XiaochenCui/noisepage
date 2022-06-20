@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <iostream>
 
 #include "loggers/index_logger.h"
 
@@ -49,19 +50,13 @@ class BPlusTree {
    * by InnerNode or LeafNode.
    */
   struct node {
-    // Level in the b-tree, if level == 0 -> leaf node
-    uint8_t level;
-
     // Number of key slotuse use, so the number of valid children or data
     // pointers
     uint16_t slotused;
 
-    node(const uint8_t l) : slotused(0) { level = l; }
+    node() : slotused(0) {}
 
     virtual ~node() = default;
-
-    // True if this is a leaf node.
-    bool IsLeafPage() const { return (level == 0); }
 
     /**
      * Insert an item into the sub-tree rooted at this node.
@@ -81,7 +76,11 @@ class BPlusTree {
      */
     virtual void ClearChildren() { throw std::runtime_error("call virtual function: node::ClearChildren"); }
 
-    virtual std::string PrettyRepresentation() {
+   public:
+    virtual void PrintTree(bool verbose = false, uint8_t level = 0) const {}
+
+   private:
+    virtual std::string Outline(bool verbose = false) const {
       throw std::runtime_error("call virtual function: node::PrettyRepresentation");
     }
   };
@@ -99,7 +98,7 @@ class BPlusTree {
     KeyType keys[leaf_slotmax];
     ValueType values[leaf_slotmax];
 
-    explicit LeafNode() : node(0), right_sibling(nullptr), left_sibling(nullptr) {}
+    explicit LeafNode() : node(), right_sibling(nullptr), left_sibling(nullptr) {}
 
     ~LeafNode() = default;
 
@@ -178,9 +177,20 @@ class BPlusTree {
      */
     void ClearChildren() {}
 
-    virtual std::string PrettyRepresentation() override {
-      std::string repr =
-          string_format("LeafNode (address: %p, level: %d, slotused: %d, keys: [", this, this->level, this->slotused);
+    void PrintTree(bool verbose = false, uint8_t level = 0) const final {
+      std::string content = "";
+      if (level == 0) {
+        content += "(Root Node)";
+      } else {
+        content += std::string(level, '\t') + "├";
+      }
+      content += this->Outline(verbose);
+      content += "\n";
+      std::cout << content;
+    }
+
+    std::string Outline(bool verbose) const final {
+      std::string repr = string_format("LeafNode (address: %p, slotused: %d, keys: [", this, this->slotused);
       return repr;
     }
   };
@@ -194,7 +204,7 @@ class BPlusTree {
 
     // Use `array()` syntax to initialize the array in the constructor, otherwise
     // an array will not be initialised by default
-    explicit InnerNode(const uint8_t level) : node(level), children() {}
+    explicit InnerNode() : node(), children() {}
 
     ~InnerNode() = default;
 
@@ -227,7 +237,7 @@ class BPlusTree {
           throw std::runtime_error("node is full");
         }
 
-        // Find the proper location to insert the new key and new child, the 
+        // Find the proper location to insert the new key and new child, the
       }
       return r;
     }
@@ -264,9 +274,29 @@ class BPlusTree {
       }
     }
 
-    virtual std::string PrettyRepresentation() override {
-      std::string repr =
-          string_format("InnerNode (address: %p, level: %d, slotused: %d, keys: [", this, this->level, this->slotused);
+    void PrintTree(bool verbose, uint8_t level) const final {
+      std::string content = "";
+      content += std::string(level, '\t') + "├──";
+      content += this->Outline(verbose);
+      content += "\n";
+      std::cout << content;
+
+      // Print children
+      for (uint16_t i = 0; i < node::slotused; i++) {
+        if (children[i] != nullptr) {
+          children[i]->PrintTree(verbose, level + 1);
+        } else {
+          content += string_format("error child at position {}, child is nullptr", i);
+        }
+      }
+    }
+
+    std::string Outline(bool verbose) const final {
+      std::string repr = string_format("InnerNode (address: %p, slotused: %d, keys: [", this, this->slotused);
+      for (uint16_t i = 0; i < node::slotused; i++) {
+        repr += string_format("%d, ", keys[i]);
+      }
+      repr += "])";
       return repr;
     }
   };
@@ -306,15 +336,14 @@ class BPlusTree {
 
     if (root == nullptr) {
       content += "Empty tree";
-      INDEX_LOG_INFO(content);
+      std::cout << content;
       return;
     }
 
     content.append("B+ Tree Contents:\n");
     content.append("=================\n");
-    content.append("Level: 0 (root)\n");
-    content.append(this->root->PrettyRepresentation() + "\n");
-    INDEX_LOG_INFO(content);
+    std::cout << content;
+    this->root->PrintTree();
   }
 
   /*
@@ -348,7 +377,7 @@ class BPlusTree {
       // created, so we have to create a new root node and set the old root
       // and new child as its children.
       INDEX_LOG_INFO("New child created");
-      InnerNode *new_root = new InnerNode(root->level + 1);
+      InnerNode *new_root = new InnerNode();
       new_root->keys[0] = *new_key;
 
       new_root->children[0] = root;

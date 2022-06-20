@@ -74,7 +74,10 @@
         "typeinfo": "cpp",
         "bit": "cpp",
         "codecvt": "cpp",
-        "complex": "cpp"
+        "complex": "cpp",
+        "*.ipp": "cpp",
+        "*.inc": "cpp",
+        "*.def": "cpp"
     },
     "cmake.configureOnOpen": false,
     "cmake.skipConfigureIfCachePresent": false,

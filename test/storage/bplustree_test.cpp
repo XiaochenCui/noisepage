@@ -45,6 +45,7 @@ TEST_F(BPlusTreeTests, ForwardIterator) {
 
   // auto it4 = tree->Begin(key_num + 1);
   // EXPECT_TRUE(it4.IsEnd());
+  tree->PrintInnerStructure();
 }
 
 }  // namespace terrier::storage::index

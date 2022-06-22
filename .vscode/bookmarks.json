@@ -34,14 +34,19 @@
 			"path": "src/include/storage/index/bplustree.h",
 			"bookmarks": [
 				{
-					"line": 134,
+					"line": 140,
 					"column": 7,
 					"label": "leaf insert"
 				},
 				{
-					"line": 238,
+					"line": 272,
 					"column": 93,
 					"label": "inner insert"
+				},
+				{
+					"line": 284,
+					"column": 28,
+					"label": "inner node filled"
 				}
 			]
 		}

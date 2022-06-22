@@ -84,6 +84,12 @@ class BPlusTree {
    public:
     virtual void PrintTree(uint8_t level = 0) const {}
 
+    /**
+     * Validate the structural integrity of the index data structure. If any of the integrity checks fail, then this
+     * function should fix the integrity issue.
+     */
+    virtual void CheckIntegrity(KeyType *lower_bound, KeyType *upper_bound) {}
+
    private:
     virtual std::string Outline(bool verbose = false) const {
       throw std::runtime_error("call virtual function: node::PrettyRepresentation");
@@ -194,8 +200,7 @@ class BPlusTree {
       }
       content += "├──";
 
-      bool verbose = VerboseLevel > ShowTupleContent ? true : false;
-      content += this->Outline(verbose);
+      content += this->Outline(VerboseLevel >= ShowTupleContent);
       content += "\n";
       std::cout << content;
     }
@@ -218,6 +223,35 @@ class BPlusTree {
 
       return repr;
     }
+
+    void CheckIntegrity(KeyType *lower_bound, KeyType *upper_bound) final {
+      // Check order of keys.
+      for (uint16_t i = 1; i < slotused; i++) {
+        if (KeyComparator()(keys[i], keys[i - 1])) {
+          INDEX_LOG_ERROR("LeafNode integrity check failed, keys are not sorted, key[{}] = {}, key[{}] = {}", i - 1,
+                          keys[i - 1], i, keys[i]);
+          throw std::out_of_range("LeafNode integrity check failed");
+        }
+      }
+
+      // Check lower bound.
+      KeyType first_key = keys[0];
+      if (lower_bound != nullptr && KeyComparator()(first_key, *lower_bound)) {
+        INDEX_LOG_ERROR(
+            "LeafNode integrity check failed, first key is less than lower bound, key[0] = {}, lower_bound = {}",
+            first_key, *lower_bound);
+        throw std::out_of_range("LeafNode integrity check failed");
+      }
+
+      // Check upper bound.
+      KeyType last_key = keys[slotused - 1];
+      if (upper_bound != nullptr && KeyComparator()(*upper_bound, last_key)) {
+        INDEX_LOG_ERROR(
+            "LeafNode integrity check failed, last key is greater than upper bound, key[{}] = {}, upper_bound = {}",
+            slotused - 1, last_key, *upper_bound);
+        throw std::out_of_range("LeafNode integrity check failed");
+      }
+    }
   };
 
   struct InnerNode : public node {
@@ -238,21 +272,8 @@ class BPlusTree {
 
     std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
       // stage 1 : find the proper child node to insert
-      node *child = nullptr;
-      uint16_t child_position = 0;
-      for (child_position = 0; child_position < slotused; child_position++) {
-        if (KeyComparator()(key, this->keys[child_position])) {
-          child = this->children[child_position];
-          break;
-        }
-      }
-      if (child == nullptr) {
-        child = this->children[slotused];
-      }
-
-      if (child == nullptr) {
-        throw std::runtime_error("child is nullptr");
-      }
+      uint16_t child_position = FindFirstGreaterOrEqual(key);
+      node *child = this->children[child_position];
 
       // stage 2 : insert the key into the child node
       auto r = child->Insert(key, value);
@@ -273,38 +294,43 @@ class BPlusTree {
           new_right_sibling->slotused = this->slotused - mid - 1;
           this->slotused = mid;
 
-          KeyType split_key = new_right_sibling->keys[0];
-          if (KeyComparator()(key, split_key)) {
-            // Insert the old key in the old page.
-            this->Insert(key, value);
+          KeyType split_key = this->keys[mid];
+
+          if (child_position <= mid) {
+            this->InsertAt(child_position, r.second, r.first);
           } else {
-            // Insert the new key in the new page.
-            new_right_sibling->Insert(key, value);
+            // `mid + 1` child node was left in the original node, so we have to minus `mid + 1` to get the correct
+            // position.
+            new_right_sibling->InsertAt(child_position - (mid + 1), r.second, r.first);
           }
+
+          INDEX_LOG_INFO("InnerNode split, split_key: {}", split_key);
           return std::make_pair(new_right_sibling, &split_key);
         }
 
-        // The new child is the new right sibling of the `child`.
-        {
-          // The target position to insert the new key is `child_position`.
-          std::copy_backward(keys + child_position, keys + slotused, keys + slotused + 1);
-          keys[child_position] = *r.second;
-
-          // The target position to insert the new child is `child_position + 1`.
-          std::copy_backward(children + child_position, children + slotused + 1, children + slotused + 2);
-          children[child_position + 1] = r.first;
-
-          // Increase the slot used.
-          slotused++;
-        }
+        InsertAt(child_position, r.second, r.first);
 
         return std::make_pair(nullptr, nullptr);
       }
       return r;
     }
 
-    void InsertAt(const uint16_t position, node *new_child) {
-      INDEX_LOG_INFO("Inserting child node at position: {}", position);
+    uint16_t FindFirstGreaterOrEqual(const KeyType &key) {
+      if (this->slotused == 0) {
+        return 0;
+      }
+
+      for (uint16_t i = 0; i < this->slotused; i++) {
+        if (KeyComparator()(key, this->keys[i])) {
+          return i;
+        }
+      }
+      return this->slotused;
+    }
+
+    // Insert the key and its right child to the given position.
+    void InsertAt(const uint16_t position, KeyType *key, node *right_child) {
+      // INDEX_LOG_INFO("Inserting child node at position: {}", position);
 
       if (position > slotused) {
         INDEX_LOG_ERROR("Insertion position is greater than slotused");
@@ -320,6 +346,9 @@ class BPlusTree {
 
       std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
       std::copy_backward(children + position, children + slotused + 1, children + slotused + 2);
+      keys[position] = *key;
+      children[position] = right_child;
+      slotused++;
     }
 
     /**
@@ -336,7 +365,6 @@ class BPlusTree {
       }
 
       // Clear keys.
-      
     }
 
     void PrintTree(uint8_t level) const final {
@@ -346,7 +374,7 @@ class BPlusTree {
       }
       content += "├──";
 
-      content += this->Outline(true);
+      content += this->Outline(VerboseLevel > TreeSummary);
       content += "\n";
       std::cout << content;
 
@@ -361,12 +389,65 @@ class BPlusTree {
     }
 
     std::string Outline(bool verbose) const final {
-      std::string repr = string_format("InnerNode (address: %p, slotused: %d, keys: [", this, this->slotused);
-      for (uint16_t i = 0; i < slotused; i++) {
-        repr += string_format("%d, ", keys[i]);
+      std::string repr = string_format("InnerNode (address: %p, slotused: %d, ", this, this->slotused);
+
+      if (verbose) {
+        repr += "keys: [";
+        for (uint16_t i = 0; i < slotused; i++) {
+          repr += string_format("%d, ", keys[i]);
+        }
+        repr += "])";
+      } else {
+        ValueType first_key = keys[0];
+        ValueType last_key = keys[slotused - 1];
+        repr += string_format("keys: [%d, ..., %d])", first_key, last_key);
       }
-      repr += "])";
+
       return repr;
+    }
+
+    void CheckIntegrity(KeyType *lower_bound, KeyType *upper_bound) final {
+      // Check if any child node is nullptr.
+      for (uint16_t i = 0; i <= slotused; i++) {
+        if (children[i] == nullptr) {
+          INDEX_LOG_ERROR("Child node is nullptr, position: {}", i);
+          throw std::out_of_range("Child node is nullptr");
+        }
+      }
+
+      // Check order of keys.
+      for (uint16_t i = 1; i < slotused; i++) {
+        if (KeyComparator()(keys[i], keys[i - 1])) {
+          INDEX_LOG_ERROR("InnerNode integrity check failed, keys are not sorted, key[{}] = {}, key[{}] = {}", i - 1,
+                          keys[i - 1], i, keys[i]);
+          throw std::out_of_range("InnerNode integrity check failed");
+        }
+      }
+
+      // Check lower bound.
+      KeyType first_key = keys[0];
+      if (lower_bound != nullptr && KeyComparator()(first_key, *lower_bound)) {
+        INDEX_LOG_ERROR(
+            "InnerNode integrity check failed, first key is less than lower bound, key[0] = {}, lower_bound = {}",
+            first_key, *lower_bound);
+        throw std::out_of_range("InnerNode integrity check failed");
+      }
+
+      // Check upper bound.
+      KeyType last_key = keys[slotused - 1];
+      if (upper_bound != nullptr && KeyComparator()(*upper_bound, last_key)) {
+        INDEX_LOG_ERROR(
+            "InnerNode integrity check failed, last key is greater than upper bound, key[{}] = {}, upper_bound = {}",
+            slotused - 1, last_key, *upper_bound);
+        throw std::out_of_range("InnerNode integrity check failed");
+      }
+
+      // Recursively check children.
+      children[0]->CheckIntegrity(lower_bound, &keys[0]);
+      children[slotused]->CheckIntegrity(&keys[slotused - 1], upper_bound);
+      for (uint16_t i = 1; i < slotused; i++) {
+        children[i]->CheckIntegrity(&keys[i - 1], &keys[i]);
+      }
     }
   };
 
@@ -398,6 +479,15 @@ class BPlusTree {
       root->ClearChildren();
       delete root;
     }
+  }
+
+  void CheckIntegrity() {
+    if (root == nullptr) {
+      INDEX_LOG_INFO("B+ Tree is empty");
+      return;
+    }
+
+    this->root->CheckIntegrity(nullptr, nullptr);
   }
 
   void PrintInnerStructure() {

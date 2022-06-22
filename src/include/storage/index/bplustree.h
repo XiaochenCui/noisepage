@@ -335,9 +335,7 @@ class BPlusTree {
       }
 
       // Shift all keys from `position` right by one.
-      INDEX_LOG_INFO("value of new_key: {}", new_key);
       std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
-      INDEX_LOG_INFO("value of new_key: {}", new_key);
       keys[position] = new_key;
 
       // Shift all children from `position + 1` (i.e. the right child of `key`) right by one.

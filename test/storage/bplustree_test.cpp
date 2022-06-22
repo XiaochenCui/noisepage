@@ -11,13 +11,13 @@ struct BPlusTreeTests : public TerrierTest {};
 TEST_F(BPlusTreeTests, EmptyTest) { EXPECT_TRUE(true); }
 
 TEST_F(BPlusTreeTests, ForwardIterator) {
-  VerboseLevel = ExpandLeafNodes;
+  VerboseLevel = TreeSummary;
 
   std::unique_ptr<BPlusTree> tree = std::make_unique<BPlusTree>();
   tree->PrintInnerStructure();
 
-  // const int key_num = 1024 * 1024;
-  const int key_num = 1 * 1024;
+  const int key_num = 1024 * 1024;
+  // const int key_num = 1 * 1024;
   // const int key_num = 258;
 
   // First insert from 0 to 1 million

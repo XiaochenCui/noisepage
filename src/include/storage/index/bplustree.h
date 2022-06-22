@@ -73,14 +73,9 @@ class BPlusTree {
      * be inserted to the parent node. The new node is the right child of the split
      * key.
      */
-    virtual std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) {
+    virtual std::pair<std::shared_ptr<node>, KeyType> Insert(const KeyType &key, const ValueType &value) {
       throw std::runtime_error("call virtual function: node::Insert");
     }
-
-    /**
-     * Recursively free up nodes.
-     */
-    virtual void ClearChildren() { throw std::runtime_error("call virtual function: node::ClearChildren"); }
 
    public:
     virtual void PrintTree(uint8_t level = 0) const {}
@@ -139,11 +134,11 @@ class BPlusTree {
       slotused++;
     }
 
-    std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
+    std::pair<std::shared_ptr<node>, KeyType> Insert(const KeyType &key, const ValueType &value) final {
       if (this->IsFull()) {
         // On page filled, create a new leaf page as right sibling and
         // move half of entries to it
-        LeafNode *new_right_sibling = new LeafNode();
+        std::shared_ptr<LeafNode> new_right_sibling = std::make_shared<LeafNode>();
 
         uint16_t mid = this->slotused / 2;
         std::copy(this->keys + mid, this->keys + this->slotused, new_right_sibling->keys);
@@ -161,13 +156,13 @@ class BPlusTree {
           new_right_sibling->Insert(key, value);
         }
 
-        return std::make_pair(new_right_sibling, &split_key);
+        return std::make_pair(new_right_sibling, split_key);
       }
 
       uint16_t position = FindFirstGreaterOrEqual(key);
       this->InsertAt(position, key, value);
 
-      return std::make_pair(nullptr, nullptr);
+      return std::make_pair(nullptr, KeyType());
     }
 
     uint16_t FindFirstGreaterOrEqual(const KeyType &key) {
@@ -182,13 +177,6 @@ class BPlusTree {
       }
       return this->slotused;
     }
-
-    /**
-     * Recursively free up nodes.
-     *
-     * Do nothing since leaf node doesn't have any children
-     */
-    void ClearChildren() {}
 
     void PrintTree(uint8_t level) const final {
       if (VerboseLevel < ExpandLeafNodes) {
@@ -260,10 +248,10 @@ class BPlusTree {
     KeyType keys[inner_slotmax];
 
     // Pointers to children
-    node *children[inner_slotmax + 1];
+    std::shared_ptr<node> children[inner_slotmax + 1];
 
-    // Use `array()` syntax to initialize the array in the constructor, otherwise
-    // an array will not be initialised by default
+    // Use `array()` syntax to initialize all element of children to `nullptr`. This is necessary
+    // to check is a child is valid or not.
     explicit InnerNode() : node(), children() {}
 
     ~InnerNode() = default;
@@ -271,10 +259,10 @@ class BPlusTree {
     // True if the node's slots are full.
     bool IsFull() const { return (slotused == leaf_slotmax); }
 
-    std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) override {
+    std::pair<std::shared_ptr<node>, KeyType> Insert(const KeyType &key, const ValueType &value) final {
       // stage 1 : find the proper child node to insert
       uint16_t child_position = FindFirstGreaterOrEqual(key);
-      node *child = this->children[child_position];
+      std::shared_ptr<node> child = this->children[child_position];
 
       // stage 2 : insert the key into the child node
       auto r = child->Insert(key, value);
@@ -283,7 +271,7 @@ class BPlusTree {
         // between them.
 
         if (this->IsFull()) {
-          InnerNode *new_right_sibling = new InnerNode();
+          std::shared_ptr<InnerNode> new_right_sibling = std::make_shared<InnerNode>();
 
           uint16_t mid = this->slotused / 2;
           // Mve the keys start from `mid+1` to the new node, the key at `mid` will be popped up.
@@ -298,21 +286,21 @@ class BPlusTree {
           KeyType split_key = this->keys[mid];
 
           if (child_position <= mid) {
-            this->InsertAt(child_position, r.second, r.first);
+            this->InsertAt(child_position, r.second, std::move(r.first));
           } else {
             // `mid + 1` child node was left in the original node, so we have to minus `mid + 1` to get the correct
             // position.
-            new_right_sibling->InsertAt(child_position - (mid + 1), r.second, r.first);
+            new_right_sibling->InsertAt(child_position - (mid + 1), r.second, std::move(r.first));
           }
 
           INDEX_LOG_INFO("InnerNode split, split_key: {}", split_key);
-          return std::make_pair(new_right_sibling, &split_key);
+          return std::make_pair(new_right_sibling, split_key);
         }
 
-        KeyType copy = *r.second;
-        InsertAt(child_position, &copy, r.first);
+        // KeyType copy = *r.second;
+        InsertAt(child_position, r.second, std::move(r.first));
 
-        return std::make_pair(nullptr, nullptr);
+        return std::make_pair(nullptr, KeyType());
       }
       return r;
     }
@@ -331,7 +319,7 @@ class BPlusTree {
     }
 
     // Insert the key and its right child to the given position.
-    void InsertAt(const uint16_t position, KeyType *new_key, node *right_child) {
+    void InsertAt(const uint16_t position, KeyType new_key, std::shared_ptr<node> right_child) {
       // INDEX_LOG_INFO("Inserting child node at position: {}", position);
 
       if (position > slotused) {
@@ -347,32 +335,16 @@ class BPlusTree {
       }
 
       // Shift all keys from `position` right by one.
-      INDEX_LOG_INFO("value of new_key: {}", *new_key);
+      INDEX_LOG_INFO("value of new_key: {}", new_key);
       std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
-      INDEX_LOG_INFO("value of new_key: {}", *new_key);
-      keys[position] = *new_key;
+      INDEX_LOG_INFO("value of new_key: {}", new_key);
+      keys[position] = new_key;
 
       // Shift all children from `position + 1` (i.e. the right child of `key`) right by one.
       std::copy_backward(children + position + 1, children + slotused + 1, children + slotused + 2);
       children[position + 1] = right_child;
 
       slotused++;
-    }
-
-    /**
-     * Recursively free up nodes.
-     */
-    void ClearChildren() final {
-      // Clear children recursively.
-      for (uint16_t i = 0; i <= slotused; i++) {
-        if (children[i] != nullptr) {
-          children[i]->ClearChildren();
-          delete children[i];
-          children[i] = nullptr;
-        }
-      }
-
-      // Clear keys.
     }
 
     void PrintTree(uint8_t level) const final {
@@ -465,7 +437,7 @@ class BPlusTree {
    */
 
   // Pointer to the B+ tree's root node, either leaf or inner node.
-  node *root;
+  std::shared_ptr<node> root;
 
  public:
   using KeyValuePair = std::pair<KeyType, ValueType>;
@@ -483,10 +455,10 @@ class BPlusTree {
     INDEX_LOG_INFO(
         "B+ Tree Destructor called. "
         "Cleaning up execution environment...");
-    if (root != nullptr) {
-      root->ClearChildren();
-      delete root;
-    }
+    // if (root != nullptr) {
+    //   root->ClearChildren();
+    //   delete root;
+    // }
   }
 
   void CheckIntegrity() {
@@ -521,39 +493,35 @@ class BPlusTree {
    * should be set true. By default we allow non-unique key
    */
   void Insert(const KeyType &key, const ValueType &value, bool unique_key = false) {
-    // INDEX_LOG_INFO("Inserting key: {}", key);
     if (root == nullptr) {
-      root = new LeafNode();
+      root = std::make_shared<LeafNode>();
     }
-
-    node *new_child = nullptr;
-    KeyType *new_key = nullptr;
 
     try {
       auto r = root->Insert(key, value);
-      new_child = r.first;
-      new_key = r.second;
+      std::shared_ptr<node> new_child = std::move(r.first);
+      KeyType new_key = r.second;
+      if (new_child != nullptr) {
+        // This occurs when the root node is full and a new node had been
+        // created, so we have to create a new root node and set the old root
+        // and new child as its children.
+        INDEX_LOG_INFO("New child created");
+        std::shared_ptr<InnerNode> new_root = std::make_shared<InnerNode>();
+        new_root->keys[0] = new_key;
+
+        new_root->children[0] = std::move(root);
+        new_root->children[1] = new_child;
+
+        new_root->slotused = 1;
+
+        root = std::move(new_root);
+      }
     } catch (const std::exception &e) {
       INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", key, e.what());
       this->PrintInnerStructure();
       throw e;
     }
 
-    if (new_child != nullptr) {
-      // This occurs when the root node is full and a new node had been
-      // created, so we have to create a new root node and set the old root
-      // and new child as its children.
-      INDEX_LOG_INFO("New child created");
-      InnerNode *new_root = new InnerNode();
-      new_root->keys[0] = *new_key;
-
-      new_root->children[0] = root;
-      new_root->children[1] = new_child;
-
-      new_root->slotused = 1;
-
-      root = new_root;
-    }
     return;
   }
 

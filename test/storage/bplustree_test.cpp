@@ -17,8 +17,8 @@ TEST_F(BPlusTreeTests, ForwardIterator) {
   tree->PrintInnerStructure();
 
   // const int key_num = 1024 * 1024;
-  // const int key_num = 1 * 1024;
-  const int key_num = 258;
+  const int key_num = 1 * 1024;
+  // const int key_num = 258;
 
   // First insert from 0 to 1 million
   for (int i = 0; i < key_num; i++) {

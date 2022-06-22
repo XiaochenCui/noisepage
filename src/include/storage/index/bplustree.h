@@ -69,8 +69,9 @@ class BPlusTree {
      * On node overflow happens, if a new_node which has the same level as this
      * node is created, it will be pack up to the caller by `new_node` parameter.
      *
-     * @param new_node The new node created by the split, we pass the argument as
-     * "reference to pointer" to return the newly created node to the caller.
+     * @return The new node created on node overflow, and the split key which should
+     * be inserted to the parent node. The new node is the right child of the split
+     * key.
      */
     virtual std::pair<node *, KeyType *> Insert(const KeyType &key, const ValueType &value) {
       throw std::runtime_error("call virtual function: node::Insert");
@@ -308,7 +309,8 @@ class BPlusTree {
           return std::make_pair(new_right_sibling, &split_key);
         }
 
-        InsertAt(child_position, r.second, r.first);
+        KeyType copy = *r.second;
+        InsertAt(child_position, &copy, r.first);
 
         return std::make_pair(nullptr, nullptr);
       }
@@ -329,7 +331,7 @@ class BPlusTree {
     }
 
     // Insert the key and its right child to the given position.
-    void InsertAt(const uint16_t position, KeyType *key, node *right_child) {
+    void InsertAt(const uint16_t position, KeyType *new_key, node *right_child) {
       // INDEX_LOG_INFO("Inserting child node at position: {}", position);
 
       if (position > slotused) {
@@ -344,10 +346,16 @@ class BPlusTree {
         return;
       }
 
+      // Shift all keys from `position` right by one.
+      INDEX_LOG_INFO("value of new_key: {}", *new_key);
       std::copy_backward(keys + position, keys + slotused, keys + slotused + 1);
-      std::copy_backward(children + position, children + slotused + 1, children + slotused + 2);
-      keys[position] = *key;
-      children[position] = right_child;
+      INDEX_LOG_INFO("value of new_key: {}", *new_key);
+      keys[position] = *new_key;
+
+      // Shift all children from `position + 1` (i.e. the right child of `key`) right by one.
+      std::copy_backward(children + position + 1, children + slotused + 1, children + slotused + 2);
+      children[position + 1] = right_child;
+
       slotused++;
     }
 

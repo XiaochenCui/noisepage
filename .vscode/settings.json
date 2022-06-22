@@ -1,6 +1,7 @@
 {
     "cmake.configureArgs": [
-        "-DCMAKE_BUILD_TYPE=Relwithdebinfo",
+        // "-DCMAKE_BUILD_TYPE=Relwithdebinfo",
+        "-DCMAKE_BUILD_TYPE=Debug",
         "-DTERRIER_USE_ASAN=ON",
     ],
     "cmake.buildDirectory": "${workspaceFolder}/build",

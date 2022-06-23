@@ -50,6 +50,18 @@ class BPlusTree {
    * Node Classes for In-Memory Nodes
    */
 
+  enum class NodeType {
+    Leaf,
+    Inner,
+  };
+
+  struct node;
+
+  // struct Position {
+  //   LeafNode *leaf;
+  //   uint16_t slot;
+  // }
+
   /*
    * The header structure of each node in-memory. This structure is extended
    * by InnerNode or LeafNode.
@@ -59,7 +71,9 @@ class BPlusTree {
     // pointers
     uint16_t slotused;
 
-    node() : slotused(0) {}
+    NodeType type;
+
+    node(NodeType type) : slotused(0), type(type) {}
 
     virtual ~node() = default;
 
@@ -86,6 +100,10 @@ class BPlusTree {
      */
     virtual void CheckIntegrity(KeyType *lower_bound, KeyType *upper_bound) {}
 
+    bool IsLeaf() const { return type == NodeType::Leaf; }
+
+    virtual void Search(const KeyType &key) const {}
+
    private:
     virtual std::string Outline(bool verbose = false) const {
       throw std::runtime_error("call virtual function: node::PrettyRepresentation");
@@ -97,15 +115,17 @@ class BPlusTree {
    */
   struct LeafNode : public node {
     // Double linked list pointers to traverse the leaves
+    // std::shared_ptr<LeafNode> right_sibling;
     LeafNode *right_sibling;
 
     // Double linked list pointers to traverse the leaves
+    // std::shared_ptr<LeafNode> left_sibling;
     LeafNode *left_sibling;
 
     KeyType keys[leaf_slotmax];
     ValueType values[leaf_slotmax];
 
-    explicit LeafNode() : node(), right_sibling(nullptr), left_sibling(nullptr) {}
+    explicit LeafNode() : node(NodeType::Leaf), right_sibling(nullptr), left_sibling(nullptr) {}
 
     ~LeafNode() = default;
 
@@ -155,6 +175,15 @@ class BPlusTree {
           // Insert the new key in the new page.
           new_right_sibling->Insert(key, value);
         }
+
+        // Update the sibling pointers.
+        if (this->right_sibling != nullptr) {
+          this->right_sibling->left_sibling = new_right_sibling.get();
+          new_right_sibling->right_sibling = this->right_sibling;
+        }
+
+        this->right_sibling = new_right_sibling.get();
+        new_right_sibling->left_sibling = this;
 
         return std::make_pair(new_right_sibling, split_key);
       }
@@ -252,7 +281,7 @@ class BPlusTree {
 
     // Use `array()` syntax to initialize all element of children to `nullptr`. This is necessary
     // to check is a child is valid or not.
-    explicit InnerNode() : node(), children() {}
+    explicit InnerNode() : node(NodeType::Inner), children() {}
 
     ~InnerNode() = default;
 
@@ -293,7 +322,7 @@ class BPlusTree {
             new_right_sibling->InsertAt(child_position - (mid + 1), r.second, std::move(r.first));
           }
 
-          INDEX_LOG_INFO("InnerNode split, split_key: {}", split_key);
+          // INDEX_LOG_INFO("InnerNode split, split_key: {}", split_key);
           return std::make_pair(new_right_sibling, split_key);
         }
 
@@ -437,8 +466,28 @@ class BPlusTree {
   // Pointer to the B+ tree's root node, either leaf or inner node.
   std::shared_ptr<node> root;
 
+ private:
+  std::shared_ptr<LeafNode> GetFirstLeaf() {
+    if (root == nullptr) {
+      return nullptr;
+    }
+
+    std::shared_ptr<node> current_node = root;
+    while (!current_node->IsLeaf()) {
+      current_node = std::static_pointer_cast<InnerNode>(current_node)->children[0];
+    }
+    return std::static_pointer_cast<LeafNode>(current_node);
+  }
+
  public:
-  using KeyValuePair = std::pair<KeyType, ValueType>;
+  // using KeyValuePair = std::pair<KeyType, ValueType>;
+  struct KeyValue {
+    KeyType key;
+    ValueType value;
+
+   public:
+    KeyValue(KeyType key = KeyType(), ValueType value = ValueType()) : key(key), value(value) {}
+  };
 
   /*
    * Default constructor initializing an empty B+ tree.
@@ -465,7 +514,12 @@ class BPlusTree {
       return;
     }
 
-    this->root->CheckIntegrity(nullptr, nullptr);
+    try {
+      root->CheckIntegrity(nullptr, nullptr);
+    } catch (const std::exception &e) {
+      PrintInnerStructure();
+      throw e;
+    }
   }
 
   void PrintInnerStructure() {
@@ -503,7 +557,6 @@ class BPlusTree {
         // This occurs when the root node is full and a new node had been
         // created, so we have to create a new root node and set the old root
         // and new child as its children.
-        INDEX_LOG_INFO("New child created");
         std::shared_ptr<InnerNode> new_root = std::make_shared<InnerNode>();
         new_root->keys[0] = new_key;
 
@@ -535,19 +588,47 @@ class BPlusTree {
    * iterator and an end iterator (i.e. both flags are set to true). This
    * is a valid state.
    */
-  ForwardIterator Begin() { return ForwardIterator{this}; }
+  ForwardIterator Begin() { return ForwardIterator{this->GetFirstLeaf().get()}; }
+
+  /*
+   * Begin() - Return an iterator using a given key
+   *
+   * The iterator returned will points to a data item whose key is greater than
+   * or equal to the given start key. If such key does not exist then it will
+   * be the smallest key that is greater than start_key
+   */
+  ForwardIterator Begin(const KeyType &start_key) { return ForwardIterator{this, start_key}; }
 
   /*
    * Iterator Interface
    */
   class ForwardIterator {
    private:
-    KeyValuePair *kv_pair;
+    LeafNode *current_leaf;
+    uint16_t current_slot;
+
+    KeyValue kv;
 
    public:
-    ForwardIterator(BPlusTree *tree) : kv_pair{nullptr} {}
+    ForwardIterator(LeafNode *leaf, uint16_t slot = 0) : current_leaf(leaf), current_slot(slot), kv() {}
 
-    bool IsEnd() { return true; }
+    ForwardIterator(BPlusTree *tree, const KeyType &start_key) : current_leaf(nullptr), current_slot(0), kv() {
+      if (tree->root == nullptr) {
+        return;
+      }
+    }
+
+    bool IsEnd() {
+      if (current_leaf == nullptr) {
+        return true;
+      }
+
+      if (current_leaf->right_sibling == nullptr && current_slot >= current_leaf->slotused) {
+        return true;
+      }
+
+      return false;
+    }
 
     /*
      * operator->() - Returns the value pointer pointed to by this iterator
@@ -555,14 +636,35 @@ class BPlusTree {
      * Note that this function returns a constant pointer which can be used
      * to access members of the value, but cannot modify
      */
-    inline const KeyValuePair *operator->() { return &*kv_pair; }
+    inline const KeyValue *operator->() {
+      if (this->IsEnd()) {
+        throw std::out_of_range("Iterator is at end");
+      }
+
+      kv.key = current_leaf->keys[current_slot];
+      kv.value = current_leaf->values[current_slot];
+      return &kv;
+    }
 
     /*
      * Postfix operator++ - Move the iterator ahead, and return the old one
      *
      * For end() iterator we do not do anything but return the same iterator
      */
-    inline ForwardIterator operator++(int) { return *this; }
+    inline ForwardIterator operator++(int) {
+      if (this->IsEnd()) {
+        throw std::out_of_range("Iterator is at end");
+      }
+
+      if (current_slot + 1 < current_leaf->slotused) {
+        current_slot++;
+      } else {
+        current_leaf = current_leaf->right_sibling;
+        current_slot = 0;
+      }
+
+      return *this;
+    }
   };
 };
 

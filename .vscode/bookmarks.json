@@ -34,19 +34,39 @@
 			"path": "src/include/storage/index/bplustree.h",
 			"bookmarks": [
 				{
-					"line": 136,
+					"line": 156,
 					"column": 7,
 					"label": "leaf insert"
 				},
 				{
-					"line": 261,
+					"line": 290,
 					"column": 93,
 					"label": "inner insert"
 				},
 				{
-					"line": 273,
+					"line": 302,
 					"column": 28,
 					"label": "inner node filled"
+				}
+			]
+		},
+		{
+			"path": "test/storage/bplustree_test.cpp",
+			"bookmarks": [
+				{
+					"line": 5,
+					"column": 5,
+					"label": "test: bplustree"
+				}
+			]
+		},
+		{
+			"path": "test/storage/bwtree_test.cpp",
+			"bookmarks": [
+				{
+					"line": 9,
+					"column": 7,
+					"label": "test: bwtree"
 				}
 			]
 		}

@@ -12,35 +12,23 @@ TEST_F(BPlusTreeTests, EmptyTest) { EXPECT_TRUE(true); }
 
 TEST_F(BPlusTreeTests, ForwardIterator) {
   VerboseLevel = TreeSummary;
-
   std::unique_ptr<BPlusTree> tree = std::make_unique<BPlusTree>();
-  tree->PrintInnerStructure();
-
   const int key_num = 1024 * 1024;
-  // const int key_num = 1 * 1024;
-  // const int key_num = 258;
 
   // First insert from 0 to 1 million
   for (int i = 0; i < key_num; i++) {
     tree->Insert(i, i);
-
-    try {
-      tree->CheckIntegrity();
-    } catch (const std::exception &e) {
-      INDEX_LOG_ERROR("Exception while inserting key: {}, error: {}", i, e.what());
-      tree->PrintInnerStructure();
-      throw e;
-    }
   }
 
+  tree->CheckIntegrity();
   tree->PrintInnerStructure();
 
   auto it = tree->Begin();
 
   int64_t i = 0;
   while (!it.IsEnd()) {
-    // EXPECT_EQ(it->first, it->second);
-    // EXPECT_EQ(it->first, i);
+    EXPECT_EQ(it->key, it->value);
+    EXPECT_EQ(it->key, i);
 
     i++;
     it++;

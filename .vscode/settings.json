@@ -96,7 +96,7 @@
                 "debug": {
                     "short": "Debug",
                     "long": "Disable optimizations - include debug information.",
-                    "buildType": "Debug"
+                    "buildType": "DEBUG"
                 },
                 "release": {
                     "short": "Release",
